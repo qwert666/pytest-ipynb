@@ -57,8 +57,24 @@ def get_cell_description(cell_input):
     """
     try:
         first_line = cell_input.split("\n")[0]
-        if first_line.startswith(('"', '#', 'def')):
-            return first_line.replace('"','').replace("#",'').replace('def ', '').replace("_", " ").strip()
+        if first_line.startswith(('"', '#')):
+            line = first_line.replace('"','').replace("#",'').replace(" ", "").replace("_", " ").strip()
+
+            dictionary = dict([b.split(":") for b in line.split(",")])
+
+            setup = bool(dictionary.get("setup", False))
+            title = dictionary.get("title", "No title given")
+            ignore = bool(dictionary.get("ignore", False))
+            timeout = int(dictionary.get("timeout", 20))
+
+            meta_data = {
+                'setup': setup,
+                'title': title,
+                'ignore': ignore,
+                'timeout': timeout
+            }
+
+            return meta_data
     except:
         pass
     return "no description"
@@ -104,29 +120,29 @@ class IPyNbCell(pytest.Item):
 """import os
 os.chdir("%s")""" % self.parent.notebook_folder)
 
-        if ("SKIPCI" in self.cell_description) and ("CI" in os.environ):
+        if self.cell_description["ignore"]:
             pass
         else:
             if self.parent.fixture_cell:
                 self.parent.runner.kc.execute(self.parent.fixture_cell.input, allow_stdin=False)
             msg_id = self.parent.runner.kc.execute(self.cell.input, allow_stdin=False)
-            if self.cell_description.lower().startswith("fixture") or self.cell_description.lower().startswith("setup"):
+            if self.cell_description["setup"]:
                 self.parent.fixture_cell = self.cell
-            timeout = 20
+            timeout = self.cell_description["timeout"]
             while True:
                 try:
                     msg = self.parent.runner.kc.get_shell_msg(block=True, timeout=timeout)
                     if msg.get("parent_header", None) and msg["parent_header"].get("msg_id", None) == msg_id:
                         break
                 except Empty:
-                    raise IPyNbException(self.cell_num, self.cell_description,
+                    raise IPyNbException(self.cell_num, self.cell_description["title"],
                                          self.cell.input,
                                          "Timeout of %d seconds exceeded executing cell: %s" % (timeout, self.cell.input))
 
             reply = msg['content']
 
             if reply['status'] == 'error':
-                raise IPyNbException(self.cell_num, self.cell_description, self.cell.input, '\n'.join(reply['traceback']))
+                raise IPyNbException(self.cell_num, self.cell_description["title"], self.cell.input, '\n'.join(reply['traceback']))
 
     def repr_failure(self, excinfo):
         """ called when self.runtest() raises an exception. """
@@ -143,6 +159,5 @@ os.chdir("%s")""" % self.parent.notebook_folder)
     def _makeid(self):
         description = self.parent.nodeid + "::" + self.name
         description += "::" + "cell %d" % self.cell_num
-        if self.cell_description:
-            description += ", " + self.cell_description
+        description += ", " + self.cell_description["title"]
         return description
